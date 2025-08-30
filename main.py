@@ -1,106 +1,70 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI
+from pydantic import BaseModel
 import pandas as pd
-import tensorflow as tf
-import joblib
+import numpy as np
 import requests
+import os
+import joblib
+from tensorflow.keras.models import load_model
 
-# ===== 1. 建立 FastAPI =====
-app = FastAPI(title="Forecast Lite API with Live Data")
+app = FastAPI()
 
-# ===== 2. 載入模型 =====
-models = {
-    "inception": tf.keras.models.load_model("models/inception_model.h5", compile=False),
-    "lstm": tf.keras.models.load_model("models/lstm_model.h5", compile=False),
-    "rf": joblib.load("models/rf_model.pkl")
-}
+# 讀取模型
+inception_model = load_model("models/inception_model.h5")
+lstm_model = load_model("models/lstm_model.h5")
+rf_model = joblib.load("models/rf_model.pkl")
 
-# ===== 3. Alpha Vantage API Key =====
-API_KEY = "FUGXBR5LTNZSFCVT"
+# Alpha Vantage API Key 從環境變數讀
+API_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
-# ===== 4. 取得即時價格函式 =====
-def get_latest_rate(symbol: str):
-    if symbol.upper() == "XAUUSD":
-        url = f"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=XAU&to_currency=USD&apikey={API_KEY}"
-    elif symbol.upper() == "GBPUSD":
-        url = f"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=GBP&to_currency=USD&apikey={API_KEY}"
-    else:
-        return None
+# 抓即時資料
+def get_realtime_price(symbol):
+    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={symbol}&apikey={API_KEY}&outputsize=compact"
+    res = requests.get(url).json()
+    ts = res.get("Time Series (Daily)", {})
+    df = pd.DataFrame.from_dict(ts, orient="index")
+    df = df.sort_index()
+    df = df.astype(float)
+    return df
 
-    resp = requests.get(url).json()
-    try:
-        rate = float(resp["Realtime Currency Exchange Rate"]["5. Exchange Rate"])
-    except:
-        rate = None
-    return rate
+# 簡單特徵處理
+def prepare_features(df, n_samples):
+    df = df[-n_samples:]
+    X = df['5. adjusted close'].values.reshape(-1,1)
+    return X
 
-# ===== 5. 模擬歷史資料 (前 n_samples 天) =====
-def get_recent_data(symbol: str, n_samples: int):
-    latest = get_latest_rate(symbol)
-    if latest is None:
-        raise ValueError("無法取得即時價格")
-    # 模擬特徵
-    data = pd.DataFrame({
-        "Close": [latest]*n_samples
-    })
-    data["Datetime"] = pd.date_range(end=pd.Timestamp.now(), periods=n_samples)
-    return data
-
-# ===== 6. 前處理函式 =====
-def preprocess(data: pd.DataFrame):
-    X = data.drop(columns=["Datetime"]).values
-    return X.reshape((1, X.shape[0], X.shape[1]))
-
-# ===== 7. 單一模型預測 =====
+# 單模型預測
 @app.get("/predict")
-def predict(
-    symbol: str = Query("XAUUSD", description="資產: XAUUSD / GBPUSD"),
-    model_name: str = Query("inception", description="模型名稱: inception / lstm / rf"),
-    n_samples: int = Query(300, ge=1, description="樣本大小 (天數)")
-):
-    data = get_recent_data(symbol, n_samples)
-    X = preprocess(data)
-
-    model = models.get(model_name)
-    if model is None:
-        return {"error": f"模型 {model_name} 不存在，可選擇: {list(models.keys())}"}
-
-    if model_name == "rf":
-        X_rf = X.reshape(X.shape[1], X.shape[2])
-        y_pred = model.predict([X_rf.flatten()])
+def predict(symbol: str, model_name: str, n_samples: int = 300):
+    df = get_realtime_price(symbol)
+    X = prepare_features(df, n_samples)
+    if model_name == "inception":
+        pred = inception_model.predict(X[np.newaxis,:,:])
+        pred_value = float(pred[0][0])
+    elif model_name == "lstm":
+        pred = lstm_model.predict(X[np.newaxis,:,:])
+        pred_value = float(pred[0][0])
+    elif model_name == "rf":
+        pred_value = float(rf_model.predict(X[-1].reshape(1,-1))[0])
     else:
-        y_pred = model.predict(X)
+        return {"error": "invalid model_name"}
+    latest_price = float(df['5. adjusted close'].iloc[-1])
+    return {"symbol": symbol, "latest_rate": latest_price, "prediction": pred_value, "model_name": model_name, "n_samples": n_samples}
 
-    return {
-        "symbol": symbol.upper(),
-        "model": model_name,
-        "n_samples": n_samples,
-        "prediction": y_pred.tolist(),
-        "latest_rate": data["Close"].iloc[-1]
-    }
-
-# ===== 8. 三模型同時預測 =====
+# 三模型預測
 @app.get("/predict_all")
-def predict_all(symbol: str = Query("XAUUSD", description="資產: XAUUSD / GBPUSD"), n_samples: int = Query(300, ge=1)):
-    data = get_recent_data(symbol, n_samples)
-    X = preprocess(data)
-
-    results = {}
-    for name, model in models.items():
-        if name == "rf":
-            X_rf = X.reshape(X.shape[1], X.shape[2])
-            pred = model.predict([X_rf.flatten()])
-        else:
-            pred = model.predict(X)
-        results[name] = pred.tolist()
-
+def predict_all(symbol: str, n_samples: int = 300):
+    df = get_realtime_price(symbol)
+    X = prepare_features(df, n_samples)
+    inception_pred = float(inception_model.predict(X[np.newaxis,:,:])[0][0])
+    lstm_pred = float(lstm_model.predict(X[np.newaxis,:,:])[0][0])
+    rf_pred = float(rf_model.predict(X[-1].reshape(1,-1))[0])
+    latest_price = float(df['5. adjusted close'].iloc[-1])
     return {
-        "symbol": symbol.upper(),
+        "symbol": symbol,
+        "latest_rate": latest_price,
         "n_samples": n_samples,
-        "results": results,
-        "latest_rate": data["Close"].iloc[-1]
+        "inception": inception_pred,
+        "lstm": lstm_pred,
+        "rf": rf_pred
     }
-
-# ===== 9. 健康檢查 =====
-@app.get("/")
-def root():
-    return {"message": "Forecast Lite API 運行中"}
