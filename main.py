@@ -1,95 +1,106 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
-import importlib.util
-import os, glob, statistics, datetime
+from fastapi import FastAPI, Query
+import pandas as pd
+import tensorflow as tf
+import joblib
+import requests
 
-APP_DIR = os.path.dirname(__file__)
-MODELS_DIR = os.path.join(APP_DIR, "models")
-STATIC_DIR = os.path.join(APP_DIR, "static")
+# ===== 1. 建立 FastAPI =====
+app = FastAPI(title="Forecast Lite API with Live Data")
 
-app = FastAPI(title="Forecast Lite", version="1.0.0")
+# ===== 2. 載入模型 =====
+models = {
+    "inception": tf.keras.models.load_model("models/inception_model.h5", compile=False),
+    "lstm": tf.keras.models.load_model("models/lstm_model.h5", compile=False),
+    "rf": joblib.load("models/rf_model.pkl")
+}
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# ===== 3. Alpha Vantage API Key =====
+API_KEY = "FUGXBR5LTNZSFCVT"
 
-# serve static UI
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# ===== 4. 取得即時價格函式 =====
+def get_latest_rate(symbol: str):
+    if symbol.upper() == "XAUUSD":
+        url = f"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=XAU&to_currency=USD&apikey={API_KEY}"
+    elif symbol.upper() == "GBPUSD":
+        url = f"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=GBP&to_currency=USD&apikey={API_KEY}"
+    else:
+        return None
 
-@app.get("/", include_in_schema=False)
-def root_index():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    resp = requests.get(url).json()
+    try:
+        rate = float(resp["Realtime Currency Exchange Rate"]["5. Exchange Rate"])
+    except:
+        rate = None
+    return rate
 
-class PredictIn(BaseModel):
-    symbol: str = Field(pattern="^(XAUUSD|GBPUSD)$")
-    model: str
-    sample_size: int
-    horizon_days: int = 7
-    random_seed: int | None = None
+# ===== 5. 模擬歷史資料 (前 n_samples 天) =====
+def get_recent_data(symbol: str, n_samples: int):
+    latest = get_latest_rate(symbol)
+    if latest is None:
+        raise ValueError("無法取得即時價格")
+    # 模擬特徵
+    data = pd.DataFrame({
+        "Close": [latest]*n_samples
+    })
+    data["Datetime"] = pd.date_range(end=pd.Timestamp.now(), periods=n_samples)
+    return data
 
-    @field_validator("sample_size")
-    def validate_sample_size(cls, v):
-        if v not in (300, 3000, 30000):
-            raise ValueError("sample_size must be one of 300, 3000, 30000")
-        return v
+# ===== 6. 前處理函式 =====
+def preprocess(data: pd.DataFrame):
+    X = data.drop(columns=["Datetime"]).values
+    return X.reshape((1, X.shape[0], X.shape[1]))
 
-def _discover_models():
-    files = sorted(glob.glob(os.path.join(MODELS_DIR, "*.py")))
-    items = []
-    for f in files:
-        name = os.path.splitext(os.path.basename(f))[0]
-        if name == "__init__":
-            continue
-        spec = importlib.util.spec_from_file_location(name, f)
-        mod = importlib.util.module_from_spec(spec)
-        try:
-            spec.loader.exec_module(mod)  # type: ignore
-            if hasattr(mod, "run_prediction"):
-                items.append(name)
-        except Exception:
-            continue
-    return items
+# ===== 7. 單一模型預測 =====
+@app.get("/predict")
+def predict(
+    symbol: str = Query("XAUUSD", description="資產: XAUUSD / GBPUSD"),
+    model_name: str = Query("inception", description="模型名稱: inception / lstm / rf"),
+    n_samples: int = Query(300, ge=1, description="樣本大小 (天數)")
+):
+    data = get_recent_data(symbol, n_samples)
+    X = preprocess(data)
 
-@app.get("/health")
-def health():
-    return {"ok": True, "time": datetime.datetime.utcnow().isoformat() + "Z"}
+    model = models.get(model_name)
+    if model is None:
+        return {"error": f"模型 {model_name} 不存在，可選擇: {list(models.keys())}"}
 
-@app.get("/models")
-def list_models():
-    return {"models": _discover_models()}
+    if model_name == "rf":
+        X_rf = X.reshape(X.shape[1], X.shape[2])
+        y_pred = model.predict([X_rf.flatten()])
+    else:
+        y_pred = model.predict(X)
 
-@app.post("/predict")
-def predict(payload: PredictIn):
-    available = _discover_models()
-    if payload.model not in available:
-        raise HTTPException(status_code=400, detail=f"Model '{payload.model}' not found. Available: {available}")
-    mod_path = os.path.join(MODELS_DIR, f"{payload.model}.py")
-    spec = importlib.util.spec_from_file_location(payload.model, mod_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)  # type: ignore
-
-    pts = mod.run_prediction(payload.symbol, payload.sample_size, payload.horizon_days, payload.random_seed)
-    points = [{"t": t, "price": float(p)} for (t, p) in pts]
-    prices = [p["price"] for p in points]
-    out = {
-        "symbol": payload.symbol,
-        "model": payload.model,
-        "horizon_days": payload.horizon_days,
-        "generated_at": datetime.datetime.utcnow().isoformat() + "Z",
-        "points": points,
-        "stats": {
-            "min": min(prices) if prices else None,
-            "max": max(prices) if prices else None,
-            "start": prices[0] if prices else None,
-            "end": prices[-1] if prices else None,
-            "mean": statistics.fmean(prices) if prices else None,
-        },
+    return {
+        "symbol": symbol.upper(),
+        "model": model_name,
+        "n_samples": n_samples,
+        "prediction": y_pred.tolist(),
+        "latest_rate": data["Close"].iloc[-1]
     }
-    return out
+
+# ===== 8. 三模型同時預測 =====
+@app.get("/predict_all")
+def predict_all(symbol: str = Query("XAUUSD", description="資產: XAUUSD / GBPUSD"), n_samples: int = Query(300, ge=1)):
+    data = get_recent_data(symbol, n_samples)
+    X = preprocess(data)
+
+    results = {}
+    for name, model in models.items():
+        if name == "rf":
+            X_rf = X.reshape(X.shape[1], X.shape[2])
+            pred = model.predict([X_rf.flatten()])
+        else:
+            pred = model.predict(X)
+        results[name] = pred.tolist()
+
+    return {
+        "symbol": symbol.upper(),
+        "n_samples": n_samples,
+        "results": results,
+        "latest_rate": data["Close"].iloc[-1]
+    }
+
+# ===== 9. 健康檢查 =====
+@app.get("/")
+def root():
+    return {"message": "Forecast Lite API 運行中"}
