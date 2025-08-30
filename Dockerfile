@@ -1,18 +1,18 @@
-# 使用官方 Python 3.10
-FROM python:3.10-slim
+# 使用官方 TensorFlow 映像，避免依賴衝突
+FROM tensorflow/tensorflow:2.12.0
 
 WORKDIR /app
 
-# 複製 requirements 並安裝
+# 複製 requirements.txt 並安裝非 TensorFlow 套件
 COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel
 RUN pip install -r requirements.txt
 
-# 複製專案程式碼
+# 複製程式碼與模型
 COPY . .
 
-# 開放端口
-EXPOSE 10000
+# Cloud Run 預設使用 8080
+EXPOSE 8080
 
-# 啟動 uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
+# 啟動 FastAPI
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
