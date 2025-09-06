@@ -1,18 +1,21 @@
-# 使用官方 TensorFlow 映像，避免依賴衝突
-FROM tensorflow/tensorflow:2.12.0
+# 使用官方 Python 3.10 slim 映像檔
+FROM python:3.10-slim
 
+# 設定工作目錄
 WORKDIR /app
 
-# 安裝非 TensorFlow 套件
+# 複製 requirements.txt 並安裝套件
 COPY requirements.txt .
-RUN pip install --upgrade pip setuptools wheel
-RUN pip install -r requirements.txt
 
-# 複製程式碼與模型
+# 避免 numpy / tensorflow 安裝出錯
+RUN pip install --upgrade pip
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 複製專案檔案
 COPY . .
 
-EXPOSE 10000
+# 將 5000 port 對外開放
+EXPOSE 5000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
-
-
+# 啟動命令
+CMD ["gunicorn", "main:app", "--bind", "0.0.0.0:5000"]
