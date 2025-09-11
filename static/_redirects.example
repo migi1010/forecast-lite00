@@ -1,0 +1,3 @@
+/health  https://YOUR-BACKEND-URL/health   200
+/models  https://YOUR-BACKEND-URL/models   200
+/predict  https://YOUR-BACKEND-URL/predict  200

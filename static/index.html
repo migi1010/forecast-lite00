@@ -1,55 +1,56 @@
 <!doctype html>
 <html lang="zh-Hant">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Forecast Lite</title>
-    <style>
-      :root { --pad: 12px; font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, sans-serif; }
-      body { margin:0; padding:var(--pad); background:#fafafa; }
-      .wrap { max-width: 960px; margin: 0 auto; }
-      .panel { background:#fff; padding:var(--pad); border-radius:10px; box-shadow:0 4px 14px rgba(0,0,0,.06); }
-      .controls { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap:10px; margin-bottom:12px; }
-      fieldset { border:1px solid #eee; border-radius:10px; padding:10px; }
-      legend { padding:0 6px; }
-      .bigbtn { font-size:1.1rem; padding:14px 18px; border-radius:12px; border:0; cursor:pointer; background:#111; color:#fff; }
-      .row { display:flex; gap:10px; align-items:center; }
-      #stats { font-size:.95rem; opacity:.8; }
-      canvas { width:100%; height:420px; }
-    </style>
-  </head>
-  <body>
-    <div class="wrap">
-      <h1>📈 Forecast Lite — 黃金 / 英鎊 一週走勢</h1>
-      <div class="panel">
-        <div class="controls">
-          <fieldset>
-            <legend>商品</legend>
-            <label><input type="radio" name="symbol" value="XAUUSD" checked> 黃金 (XAUUSD)</label><br/>
-            <label><input type="radio" name="symbol" value="GBPUSD"> 英鎊 (GBPUSD)</label>
-          </fieldset>
-          <fieldset>
-            <legend>樣本數</legend>
-            <label><input type="radio" name="sample" value="300" checked> 300</label><br/>
-            <label><input type="radio" name="sample" value="3000"> 3000</label><br/>
-            <label><input type="radio" name="sample" value="30000"> 30000</label>
-          </fieldset>
-          <fieldset>
-            <legend>模型</legend>
-            <div id="modelRadios">（載入中…）</div>
-          </fieldset>
-        </div>
-        <div class="row">
-          <button id="run" class="bigbtn">開始預測</button>
-          <div id="stats"></div>
-        </div>
-        <div class="panel" style="margin-top:12px;">
-          <canvas id="chart"></canvas>
-        </div>
-      </div>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Forecast Lite</title>
+  <style>
+    :root{--pad:12px; font-family:system-ui,-apple-system,Segoe UI,Roboto,Noto Sans,sans-serif}
+    body{margin:0; padding:var(--pad); background:#fafafa}
+    .wrap{max-width:960px; margin:0 auto}
+    .panel{background:#fff; padding:var(--pad); border-radius:10px; box-shadow:0 4px 14px rgba(0,0,0,.06)}
+    .controls{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-bottom:12px}
+    fieldset{border:1px solid #eee; border-radius:10px; padding:10px}
+    legend{padding:0 6px}
+    .bigbtn{font-size:1.1rem; padding:14px 18px; border-radius:12px; border:0; cursor:pointer; background:#111; color:#fff}
+    .row{display:flex; gap:10px; align-items:center}
+    #stats{font-size:.95rem; opacity:.8}
+    canvas{width:100%; height:420px}
+    .soon{opacity:.5; cursor:not-allowed}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📈 Forecast Lite — 黃金 / 英鎊 一週走勢</h1>
+  <div class="panel">
+    <div class="controls">
+      <fieldset>
+        <legend>商品</legend>
+        <label><input type="radio" name="symbol" value="XAUUSD" checked>黃金 (XAUUSD)</label><br/>
+        <label class="soon"><input type="radio" name="symbol" value="GBPUSD" disabled>英鎊 (GBPUSD) — 即將推出</label>
+      </fieldset>
+      <fieldset>
+        <legend>樣本數</legend>
+        <label><input type="radio" name="sample" value="300" checked>300</label><br/>
+        <label><input type="radio" name="sample" value="3000">3000</label><br/>
+        <label><input type="radio" name="sample" value="30000">30000</label>
+      </fieldset>
+      <fieldset>
+        <legend>模型</legend>
+        <div id="modelRadios">（載入中…）</div>
+      </fieldset>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="/static/js/app.js"></script>
-  </body>
+    <div class="row">
+      <button id="run" class="bigbtn">開始預測</button>
+      <div id="stats"></div>
+    </div>
+    <div class="panel" style="margin-top:12px;">
+      <canvas id="chart"></canvas>
+    </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="/static/config.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
 </html>

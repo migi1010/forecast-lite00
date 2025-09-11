@@ -1,65 +1,92 @@
-import os
-import joblib
-import pandas as pd
-import numpy as np
-from fastapi import FastAPI
-from tensorflow.keras.models import load_model
-import requests
 
-app = FastAPI()
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field, field_validator
+import importlib.util, os, glob, statistics, datetime
 
-# 取得 Alpha Vantage API Key
-API_KEY = os.getenv("ALPHA_VANTAGE_KEY")
+APP_DIR   = os.path.dirname(__file__)
+MODELS_DIR= os.path.join(APP_DIR, "models")
+STATIC_DIR= os.path.join(APP_DIR, "static")
 
-# 載入模型（請放在 models 資料夾）
-lstm_model = load_model("models/lstm_model.h5")
-inception_model = load_model("models/inception_model.h5")
-rf_model = joblib.load("models/rf_model.pkl")
+app = FastAPI(title="Forecast Lite", version="1.0.0")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+                   allow_methods=["*"], allow_headers=["*"])
 
-# 抓取即時資料
-def fetch_data(symbol: str, n_samples: int):
-    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&apikey={API_KEY}"
-    r = requests.get(url).json()
-    if "Time Series (Daily)" not in r:
-        return pd.DataFrame()  # API 回傳錯誤時返回空 DataFrame
-    df = pd.DataFrame(r["Time Series (Daily)"]).T.astype(float)
-    df = df.sort_index(ascending=True)
-    return df.iloc[-n_samples:]
+# 靜態檔存在才掛，避免沒有 static/ 就崩潰
+if os.path.isdir(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# 單模型預測
-@app.get("/predict")
-def predict(symbol: str, model_name: str, n_samples: int = 300):
-    data = fetch_data(symbol, n_samples)
-    if data.empty:
-        return {"error": "No data available"}
-    X = data.values
-    if model_name.lower() == "lstm":
-        pred = lstm_model.predict(np.expand_dims(X, axis=0))
-    elif model_name.lower() == "inception":
-        pred = inception_model.predict(np.expand_dims(X, axis=0))
-    elif model_name.lower() == "rf":
-        pred = rf_model.predict(X)
-    else:
-        return {"error": "Unknown model_name"}
-    return {"symbol": symbol, "model": model_name, "prediction": pred.tolist()}
+@app.get("/", include_in_schema=False)
+def root_index():
+    index = os.path.join(STATIC_DIR, "index.html")
+    if os.path.isfile(index):
+        return FileResponse(index)
+    return JSONResponse({"ok": True, "msg": "Backend OK. Upload static/index.html to serve UI."})
 
-# 三模型同時預測
-@app.get("/predict_all")
-def predict_all(symbol: str, n_samples: int = 300):
-    data = fetch_data(symbol, n_samples)
-    if data.empty:
-        return {"error": "No data available"}
-    X = data.values
+class PredictIn(BaseModel):
+    symbol: str = Field(pattern="^(XAUUSD|GBPUSD)$")
+    model: str
+    sample_size: int
+    horizon_days: int = 7
+    random_seed: int | None = None
+
+    @field_validator("sample_size")
+    def _ss(cls, v):
+        if v not in (300, 3000, 30000): raise ValueError("sample_size must be one of 300, 3000, 30000")
+        return v
+
+def _discover_models():
+    items = []
+    for f in sorted(glob.glob(os.path.join(MODELS_DIR, "*.py"))):
+        name = os.path.splitext(os.path.basename(f))[0]
+        if name == "__init__": continue
+        spec = importlib.util.spec_from_file_location(name, f)
+        mod  = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(mod)  # type: ignore
+            if hasattr(mod, "run_prediction"):
+                items.append(name)
+        except Exception:
+            continue
+    return items
+
+@app.get("/health")
+def health(): return {"ok": True, "time": datetime.datetime.utcnow().isoformat()+"Z"}
+
+@app.get("/models")
+def list_models(): return {"models": _discover_models()}
+
+@app.post("/predict")
+def predict(payload: PredictIn):
+    # 英鎊先不開放：外觀殼
+    if payload.symbol == "GBPUSD":
+        raise HTTPException(status_code=501, detail="GBPUSD 暫不支援（外觀預覽中）")
+
+    available = _discover_models()
+    if payload.model not in available:
+        raise HTTPException(status_code=400, detail=f"Model '{payload.model}' not found. Available: {available}")
+
+    mod_path = os.path.join(MODELS_DIR, f"{payload.model}.py")
+    spec = importlib.util.spec_from_file_location(payload.model, mod_path)
+    mod  = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore
+
+    pts = mod.run_prediction(payload.symbol, payload.sample_size, payload.horizon_days, payload.random_seed)
+    points = [{"t": t, "price": float(p)} for (t, p) in pts]
+    prices = [p["price"] for p in points]
     return {
-        "symbol": symbol,
-        "predictions": {
-            "lstm": lstm_model.predict(np.expand_dims(X, axis=0)).tolist(),
-            "inception": inception_model.predict(np.expand_dims(X, axis=0)).tolist(),
-            "rf": rf_model.predict(X).tolist()
-        }
+        "symbol": payload.symbol,
+        "model": payload.model,
+        "horizon_days": payload.horizon_days,
+        "generated_at": datetime.datetime.utcnow().isoformat()+"Z",
+        "points": points,
+        "stats": {
+            "min": min(prices) if prices else None,
+            "max": max(prices) if prices else None,
+            "start": prices[0] if prices else None,
+            "end": prices[-1] if prices else None,
+            "mean": statistics.fmean(prices) if prices else None,
+        },
     }
-
-# 測試 API 是否啟動
-@app.get("/")
-def root():
-    return {"message": "Forecast Lite API is running"}
