@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from models.model_user_rf import run_prediction as run_rf
-from models.model_lstm import run_prediction as run_lstm
-from models.model_inception import run_prediction as run_incep
+from models.model_user_lstm import run_prediction as run_lstm
+from models.model_user_inception import run_prediction as run_incep
 
 app = FastAPI()
 
