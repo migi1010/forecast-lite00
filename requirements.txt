@@ -1,7 +1,7 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-pydantic==2.9.2
-numpy>=1.26
-pandas>=2.2
-# 若要使用真 LSTM 權重，請取消下一行註解（Render 會稍久）：
-# tensorflow-cpu==2.15.0
+fastapi
+uvicorn[standard]
+pydantic
+numpy
+scikit-learn
+pandas
+yfinance
