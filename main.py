@@ -43,7 +43,7 @@ def _discover_models():
         spec = importlib.util.spec_from_file_location(name, f)
         mod  = importlib.util.module_from_spec(spec)
         try:
-            spec.loader.exec_module(mod)  # type: ignore
+            spec.loader.exec_module(mod)
             if hasattr(mod, "run_prediction"):
                 items.append(name)
         except Exception:
@@ -68,7 +68,7 @@ def predict(payload: PredictIn):
     mod_path = os.path.join(MODELS_DIR, f"{payload.model}.py")
     spec = importlib.util.spec_from_file_location(payload.model, mod_path)
     mod  = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)  # type: ignore
+    spec.loader.exec_module(mod)
 
     pts = mod.run_prediction(payload.symbol, payload.sample_size, payload.horizon_days, payload.random_seed)
     points = [{"t": t, "price": float(p)} for (t, p) in pts]
