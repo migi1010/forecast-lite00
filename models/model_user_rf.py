@@ -1,7 +1,6 @@
 import numpy as np
 from datetime import datetime, timedelta
-from models.utils import fetch_xauusd_history
-
+from models.utils import fetch_xauusd_history  # 注意這裡要 models.utils
 
 # Dummy 隨機森林模型
 class DummyRF:
