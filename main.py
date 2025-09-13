@@ -10,13 +10,8 @@ MODELS_DIR= os.path.join(APP_DIR, "models")
 STATIC_DIR= os.path.join(APP_DIR, "static")
 
 app = FastAPI(title="Forecast Lite", version="1.0.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"]
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+                   allow_methods=["*"], allow_headers=["*"])
 
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -37,16 +32,14 @@ class PredictIn(BaseModel):
 
     @field_validator("sample_size")
     def _ss(cls, v):
-        if v not in (300, 3000, 30000):
-            raise ValueError("sample_size must be one of 300, 3000, 30000")
+        if v not in (300, 3000, 30000): raise ValueError("sample_size must be one of 300, 3000, 30000")
         return v
 
 def _discover_models():
     items = []
     for f in sorted(glob.glob(os.path.join(MODELS_DIR, "*.py"))):
         name = os.path.splitext(os.path.basename(f))[0]
-        if name == "__init__":
-            continue
+        if name == "__init__": continue
         spec = importlib.util.spec_from_file_location(name, f)
         mod  = importlib.util.module_from_spec(spec)
         try:
@@ -58,12 +51,10 @@ def _discover_models():
     return items
 
 @app.get("/health")
-def health():
-    return {"ok": True, "time": datetime.datetime.utcnow().isoformat()+"Z"}
+def health(): return {"ok": True, "time": datetime.datetime.utcnow().isoformat()+"Z"}
 
 @app.get("/models")
-def list_models():
-    return {"models": _discover_models()}
+def list_models(): return {"models": _discover_models()}
 
 @app.post("/predict")
 def predict(payload: PredictIn):
@@ -79,20 +70,9 @@ def predict(payload: PredictIn):
     mod  = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)  # type: ignore
 
-    # ===== 模型預測 =====
     pts = mod.run_prediction(payload.symbol, payload.sample_size, payload.horizon_days, payload.random_seed)
-
-    # ===== Debug log =====
-    print("=== Debug: 模型輸出 pts ===")
-    print(pts[:10])
-    prices_preview = [float(p) for (_, p) in pts][:10]
-    print("=== Debug: 對應價格 prices ===")
-    print(prices_preview)
-
-    # 整理回傳結果，價格保留六位小數
-    points = [{"t": t, "price": round(float(p), 6)} for (t, p) in pts]
+    points = [{"t": t, "price": float(p)} for (t, p) in pts]
     prices = [p["price"] for p in points]
-
     return {
         "symbol": payload.symbol,
         "model": payload.model,
