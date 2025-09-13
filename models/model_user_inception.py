@@ -1,33 +1,26 @@
 import numpy as np
 from datetime import datetime, timedelta
 from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import load_model
+from .utils import fetch_xauusd_history
 
-class DummyInception:
-    def predict(self, X):
-        last = X[:,-1,0]
-        # 模擬 Inception 波動較大
-        return last + np.random.normal(0,2, size=last.shape)
-
-model = DummyInception()
+# 載入你的 Inception h5 模型
+model = load_model("models/inception_model_final.h5")
 
 def run_prediction(symbol, sample_size, horizon_days=7, random_seed=None):
     np.random.seed(random_seed or 42)
+    df = fetch_xauusd_history() if symbol=="XAUUSD" else None
+    data = df['Close'].values[-sample_size:] if df is not None else np.ones(sample_size)*1.25
 
-    last_price = 1700 if symbol=="XAUUSD" else 1.25
-    X = np.array([last_price + np.random.normal(0,1,sample_size)]).reshape(1,sample_size,1)
-    print("=== Debug Inception Input X ===", X[:,:5,:])
+    # 標準化
+    scaler = MinMaxScaler(feature_range=(0,1))
+    data_scaled = scaler.fit_transform(data.reshape(-1,1)).reshape(1, sample_size, 1)
 
-    y_pred_scaled = model.predict(X)
-    scaler = MinMaxScaler(feature_range=(last_price*0.9,last_price*1.1))
-    scaler.fit(X.reshape(-1,1))
-    y_pred = scaler.inverse_transform(y_pred_scaled.reshape(-1,1)).flatten()
-    y_pred = np.clip(y_pred,0,None)
+    # Inception 預測
+    pred_scaled = model.predict(data_scaled).flatten()
+    pred = scaler.inverse_transform(pred_scaled.reshape(-1,1)).flatten()
 
     start_time = datetime.utcnow()
-    pts = []
-    for i in range(horizon_days):
-        t = (start_time + timedelta(days=i)).isoformat()+"Z"
-        pts.append((t, y_pred[i % len(y_pred)]))
-
-    print("=== Debug Inception pts ===", pts[:10])
+    pts = [( (start_time + timedelta(days=i)).isoformat()+"Z", float(pred[i % len(pred)]) )
+           for i in range(horizon_days)]
     return pts
