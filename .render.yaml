@@ -5,6 +5,14 @@ services:
     pythonVersion: "3.11"
     buildCommand: >
       python3 -m pip install --upgrade pip setuptools wheel &&
-      python3 -c "import shutil, glob, os; [shutil.rmtree(p, ignore_errors=True) for p in ['.venv', '__pycache__', 'build', 'dist']]; [shutil.rmtree(f, ignore_errors=True) for f in glob.glob('*.egg-info')]" &&
-      python3 -m pip install -r requirements.txt
+      python3 -c "
+import shutil, glob, os
+# 刪除舊虛擬環境與 build 產物
+for path in ['.venv', '__pycache__', 'build', 'dist']:
+    shutil.rmtree(path, ignore_errors=True)
+# 刪除 egg-info
+for f in glob.glob('*.egg-info'):
+    shutil.rmtree(f, ignore_errors=True)
+" &&
+      python3 -m pip install --no-cache-dir -r requirements.txt
     startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
