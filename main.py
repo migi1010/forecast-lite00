@@ -1,45 +1,71 @@
-from fastapi import FastAPI
-import uvicorn
-import tensorflow as tf
+import yfinance as yf
 import numpy as np
-from models.utils import fetch_xauusd_history
+from datetime import datetime, timedelta
+from tensorflow.keras.models import load_model
 
-app = FastAPI()
+# -----------------------------
+# 載入模型
+# -----------------------------
+# Random Forest 模型（自訂的 DummyRF 或你原本的 h5 RF 模型）
+from models.model_user_rf import run_prediction as run_rf
 
-# 載入三個模型
-rf_model = None  # 如果你的 RF 是用 pickle 之類的，可以這裡載入
-lstm_model = tf.keras.models.load_model("lstm_model.h5")
-inception_model = tf.keras.models.load_model("inception_model_final.h5")
+# LSTM 與 Inception 模型
+lstm_model = load_model("models/lstm_model.h5")
+inception_model = load_model("models/inception_model_final.h5")
 
+# -----------------------------
+# 抓即時 XAUUSD 資料
+# -----------------------------
+def fetch_xauusd_history(period="60d", interval="1h"):
+    ticker = yf.Ticker("XAUUSD=X")
+    df = ticker.history(period=period, interval=interval)
+    df = df[["Open", "High", "Low", "Close", "Volume"]]  # 五個特徵
+    return df
 
-@app.get("/")
-def home():
-    return {"message": "API is running 🚀"}
+# -----------------------------
+# 預測函數
+# -----------------------------
+def predict_all(sample_size=30, horizon_days=7):
+    df = fetch_xauusd_history()
+    last_sequence = df.values[-sample_size:]  # 取最後 sample_size 筆資料
+    
+    # -------------------------
+    # Random Forest 預測 (假設 RF 只需要 Close)
+    # -------------------------
+    rf_pts = run_rf("XAUUSD", sample_size, horizon_days=horizon_days)
+    
+    # -------------------------
+    # LSTM 預測
+    # -------------------------
+    X_lstm = last_sequence.reshape(1, sample_size, 5)
+    lstm_pred = lstm_model.predict(X_lstm)
+    
+    # -------------------------
+    # Inception 預測
+    # -------------------------
+    X_incep = last_sequence.reshape(1, sample_size, 5)
+    inception_pred = inception_model.predict(X_incep)
+    
+    # -------------------------
+    # 回傳結果
+    # -------------------------
+    start_time = datetime.utcnow()
+    results = []
+    for i in range(horizon_days):
+        t = (start_time + timedelta(days=i)).isoformat() + "Z"
+        results.append({
+            "time": t,
+            "RF": float(rf_pts[i % len(rf_pts)]),
+            "LSTM": float(lstm_pred[0][i % lstm_pred.shape[1]]),
+            "Inception": float(inception_pred[0][i % inception_pred.shape[1]])
+        })
+    
+    return results
 
-
-@app.get("/predict/lstm")
-def predict_lstm(symbol: str = "XAUUSD", sample_size: int = 60, horizon_days: int = 7):
-    history = fetch_xauusd_history()
-    last_prices = history["Close"].values[-sample_size:]
-    X = last_prices.reshape(1, sample_size, 1)
-    y_pred = lstm_model.predict(X).flatten()
-    return {"symbol": symbol, "predictions": y_pred[:horizon_days].tolist()}
-
-
-@app.get("/predict/inception")
-def predict_inception(symbol: str = "XAUUSD", sample_size: int = 60, horizon_days: int = 7):
-    history = fetch_xauusd_history()
-    last_prices = history["Close"].values[-sample_size:]
-    X = last_prices.reshape(1, sample_size, 1)
-    y_pred = inception_model.predict(X).flatten()
-    return {"symbol": symbol, "predictions": y_pred[:horizon_days].tolist()}
-
-
-# 這裡可以再加 RF 的 predict API
-@app.get("/predict/rf")
-def predict_rf(symbol: str = "XAUUSD", sample_size: int = 60, horizon_days: int = 7):
-    return {"symbol": symbol, "predictions": "RF 還沒接上 🚧"}
-
-
+# -----------------------------
+# 測試執行
+# -----------------------------
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    preds = predict_all()
+    for p in preds:
+        print(p)
