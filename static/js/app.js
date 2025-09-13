@@ -7,10 +7,12 @@ const MODEL_LABELS = {
   "model_user_lstm": "LSTM",
   "model_user_inception": "Inception Time"
 };
+
 // 禁用英鎊（殼）
 const DISABLED_SYMBOLS = new Set(["GBPUSD"]);
 const API_BASE = (typeof window!=='undefined' && window.API_BASE) ? window.API_BASE.replace(/\/$/,'') : '';
 
+// 抓取可用模型
 async function fetchModels() {
   const res = await fetch(`${API_BASE}/models`);
   const data = await res.json();
@@ -24,9 +26,16 @@ async function fetchModels() {
   });
 }
 
+// 取得選擇值
 function getSelected(name){ return document.querySelector(`input[name="${name}"]:checked`)?.value || null; }
-function fmt(n){ return new Intl.NumberFormat('en-US',{maximumFractionDigits:6}).format(n); }
 
+// 格式化顯示數字（保留 6 位小數）
+function fmt(n){ 
+  if(n===null || n===undefined) return '-';
+  return Number(n).toFixed(6); 
+}
+
+// 畫折線圖
 function buildChart(points, symbol){
   const ctx = document.getElementById('chart').getContext('2d');
   const labels = points.map(p => (new Date(p.t)).toLocaleDateString());
@@ -34,31 +43,77 @@ function buildChart(points, symbol){
   if (CHART) CHART.destroy();
   CHART = new Chart(ctx, {
     type:'line',
-    data:{ labels, datasets:[{ label:`${symbol} 預測價格`, data, fill:false }] },
+    data:{
+      labels,
+      datasets:[{ label:`${symbol} 預測價格`, data, fill:false, borderColor:'blue' }]
+    },
     options:{
       responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'nearest', intersect:false },
-      scales:{ y:{ ticks:{ callback:v=>fmt(v) } } }
+      scales:{
+        y:{
+          ticks:{
+            callback: v => fmt(v)
+          }
+        }
+      }
     }
   });
 }
 
+// 執行一次預測
 async function runOnce(){
-  const btn = document.getElementById('run'); btn.disabled = true;
+  const btn = document.getElementById('run'); 
+  btn.disabled = true;
+
   const symbol = getSelected('symbol');
-  if (DISABLED_SYMBOLS.has(symbol)) { alert('英鎊（GBPUSD）目前只提供介面預覽，請選擇黃金（XAUUSD）。'); btn.disabled=false; return; }
+  if (DISABLED_SYMBOLS.has(symbol)) { 
+    alert('英鎊（GBPUSD）目前只提供介面預覽，請選擇黃金（XAUUSD）。'); 
+    btn.disabled=false; 
+    return; 
+  }
+
   const sample = parseInt(getSelected('sample'),10);
   const model = getSelected('model');
   const payload = { symbol, sample_size: sample, horizon_days: 7, model };
-  const res = await fetch(`${API_BASE}/predict`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
-  const data = await res.json();
-  if (data && data.points) {
-    buildChart(data.points, data.symbol);
-    const s = data.stats||{};
-    document.getElementById('stats').textContent = `最小: ${fmt(s.min)} ｜ 最大: ${fmt(s.max)} ｜ 起: ${fmt(s.start)} ｜ 迄: ${fmt(s.end)}`;
-  } else { alert('沒有取得預測結果'); }
+
+  try {
+    const res = await fetch(`${API_BASE}/predict`, { 
+      method:'POST', 
+      headers:{'Content-Type':'application/json'}, 
+      body: JSON.stringify(payload) 
+    });
+    const data = await res.json();
+
+    if (data && data.points) {
+      buildChart(data.points, data.symbol);
+
+      const s = data.stats || {};
+      document.getElementById('stats').textContent = 
+        `最小: ${fmt(s.min)} ｜ 最大: ${fmt(s.max)} ｜ 起: ${fmt(s.start)} ｜ 迄: ${fmt(s.end)}`;
+
+      // 顯示前 10 筆原始數據
+      const rawHolder = document.getElementById('rawData');
+      if(rawHolder){
+        rawHolder.innerHTML = '';
+        data.points.slice(0,10).forEach(p=>{
+          rawHolder.insertAdjacentHTML('beforeend',
+            `<p>${new Date(p.t).toLocaleString()}: ${fmt(p.price)}</p>`);
+        });
+      }
+
+    } else { 
+      alert('沒有取得預測結果'); 
+    }
+
+  } catch(e){
+    console.error(e);
+    alert('呼叫 API 發生錯誤');
+  }
+
   btn.disabled = false;
 }
 
+// 綁定按鈕
 document.getElementById('run').addEventListener('click', runOnce);
 fetchModels();
