@@ -1,4 +1,3 @@
-# render.yaml
 services:
   - type: web
     name: forecast-lite0
@@ -6,6 +5,6 @@ services:
     pythonVersion: "3.11"
     buildCommand: >
       python3 -m pip install --upgrade pip setuptools wheel &&
-      rm -rf .venv __pycache__ build dist *.egg-info &&
+      python3 -c "import shutil, glob, os; [shutil.rmtree(p, ignore_errors=True) for p in ['.venv', '__pycache__', 'build', 'dist']]; [shutil.rmtree(f, ignore_errors=True) for f in glob.glob('*.egg-info')]" &&
       python3 -m pip install -r requirements.txt
     startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
