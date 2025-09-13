@@ -1,29 +1,19 @@
-# 使用官方 Python 3.11 slim 映像
+# 使用 Python 3.11 slim
 FROM python:3.11-slim
 
 # 設定工作目錄
 WORKDIR /app
 
-# 複製 requirements.txt
+# 複製 requirements 並安裝
 COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 安裝依賴套件
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
-
-# 複製程式碼與模型
+# 複製專案所有檔案
 COPY . .
 
-# 環境變數，FastAPI/Flask 偵聽所有 IP
-ENV HOST=0.0.0.0
-ENV PORT=8000
+# Render 需要對外暴露端口
+ENV PORT=10000
+EXPOSE 10000
 
-# 對外開放 8000 port
-EXPOSE 8000
-
-# 啟動指令
-# 假設你使用 FastAPI
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-# 如果你使用 Flask，可以改成：
-# CMD ["python", "main.py"]
+# 啟動 FastAPI
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
