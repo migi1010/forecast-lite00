@@ -1,11 +1,9 @@
-# render.yaml
 services:
   - type: web
     name: forecast-lite0
     env: python
-    pythonVersion: "3.11.4"  # 使用 Render 支援且穩定的 Python 版本
+    pythonVersion: "3.11.4"
     buildCommand: >
       python3 -m pip install --upgrade pip setuptools wheel &&
-      rm -rf .venv __pycache__ build dist *.egg-info &&
-      python3 -m pip install -r requirements.txt
+      python3 -m pip install --no-cache-dir -r requirements.txt
     startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
