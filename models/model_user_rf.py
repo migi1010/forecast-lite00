@@ -1,32 +1,32 @@
+import numpy as np
+from datetime import datetime, timedelta
+from sklearn.preprocessing import MinMaxScaler
 
-# 隨機森林：無趨勢、純隨機步；會優先呼叫 originals/隨機森林模型.py 的 run_prediction
-import importlib.util, os, random, datetime, math
-HERE = os.path.dirname(__file__)
+class DummyRF:
+    def predict(self, X):
+        # 隨機森林模擬預測：前一價 + 小隨機波動
+        return X[:,-1,0] + np.random.normal(0, 1.5, size=X.shape[0])
 
-def _load_user():
-    p = os.path.join(HERE, "originals", "隨機森林模型.py")
-    if not os.path.exists(p): return None
-    spec = importlib.util.spec_from_file_location("user_rf", p)
-    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)  # type: ignore
-    return m
+model = DummyRF()
 
-def _fallback(symbol, sample_size, horizon_days, seed):
-    if seed is not None: random.seed(seed)
-    base = 2400.0 if symbol=="XAUUSD" else 1.28
-    vol  = (35.0 if symbol=="XAUUSD" else 0.006) / math.sqrt(sample_size)
-    today = datetime.date.today(); level = base; out=[]
+def run_prediction(symbol, sample_size, horizon_days=7, random_seed=None):
+    np.random.seed(random_seed or 42)
+
+    last_price = 1700 if symbol=="XAUUSD" else 1.25
+    X = np.array([last_price + np.random.normal(0,1,sample_size)]).reshape(1,sample_size,1)
+    print("=== Debug RF Input X ===", X[:,:5,:])
+
+    y_pred_scaled = model.predict(X)
+    scaler = MinMaxScaler(feature_range=(last_price*0.9,last_price*1.1))
+    scaler.fit(X.reshape(-1,1))
+    y_pred = scaler.inverse_transform(y_pred_scaled.reshape(-1,1)).flatten()
+    y_pred = np.clip(y_pred,0,None)
+
+    start_time = datetime.utcnow()
+    pts = []
     for i in range(horizon_days):
-        level = max(0.0, level*(1.0 + random.gauss(0.0, vol)))
-        t = datetime.datetime.combine(today+datetime.timedelta(days=i+1), datetime.time()).isoformat()+"Z"
-        out.append((t, level))
-    return out
+        t = (start_time + timedelta(days=i)).isoformat()+"Z"
+        pts.append((t, y_pred[i % len(y_pred)]))
 
-def run_prediction(symbol: str, sample_size: int, horizon_days: int, random_seed: int|None=None):
-    for fn in ("run_prediction","predict_next","forecast","main"):
-        try:
-            m=_load_user()
-            if m and hasattr(m,fn):
-                out=getattr(m,fn)(symbol, sample_size, horizon_days, random_seed)
-                if out: return [(str(t), float(p)) for (t,p) in out]
-        except Exception: break
-    return _fallback(symbol, sample_size, horizon_days, random_seed)
+    print("=== Debug RF pts ===", pts[:10])
+    return pts
