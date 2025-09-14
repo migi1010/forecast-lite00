@@ -3,7 +3,6 @@ numpy<1.24,>=1.22
 pandas==1.5.3
 scikit-learn==1.2.2
 yfinance==0.2.27
-fastapi==0.104.0
+fastapi==0.103.0
 uvicorn==0.24.0
 flask>=2.3.0,<2.4
-typing-extensions<4.6.0
