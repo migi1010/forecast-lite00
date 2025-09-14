@@ -7,7 +7,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
-
+RUN pip install --no-cache-dir tensorflow==2.13.1
 # 複製專案程式碼
 COPY . .
 
