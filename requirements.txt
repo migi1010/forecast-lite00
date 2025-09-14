@@ -19,7 +19,7 @@ frozendict>=2.3.4
 appdirs>=1.4.4
 
 # Web 框架
-fastapi==0.104.0
+fastapi==0.95.2
 uvicorn==0.24.0
 flask>=2.3.0,<2.4.0
 
